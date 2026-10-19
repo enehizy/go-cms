@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTs post_media(
+    id SERIAL PRIMARY KEY,
+    media_id BIGINT REFERENCES media(id) ON DELETE CASCADE,
+    post_id BIGINT REFERENCES posts(id) ON DELETE CASCADE
+)

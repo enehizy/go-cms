@@ -1,10 +1,12 @@
 package models
 
+type Mimetype string
+
 var (
-	ImagePng  = "image/png"
-	ImageJpeg = "image/Jpeg"
-	VideoMp4  = "video/mp4"
-	VideoWebp = "video/webp"
+	ImagePng  Mimetype = "image/png"
+	ImageJpeg Mimetype = "image/Jpeg"
+	VideoMp4  Mimetype = "video/mp4"
+	VideoWebp Mimetype = "video/webp"
 )
 
 type Media struct {

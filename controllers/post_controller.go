@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/enehizy/go-cms/db"
+	"github.com/enehizy/go-cms/database"
 	"github.com/enehizy/go-cms/models"
 	"github.com/enehizy/go-cms/utils"
 	"github.com/gin-gonic/gin"
@@ -14,7 +14,7 @@ import (
 
 func GetPosts(c *gin.Context) {
 	var posts []models.Post
-	db, err := db.GetDBFromContext(c)
+	db, err := database.GetDBFromContext(c)
 	if err != nil {
 		c.AbortWithStatus(http.StatusInternalServerError)
 	}
@@ -29,7 +29,7 @@ func GetPost(c *gin.Context) {
 	id := c.Param("id")
 
 	var post models.Post
-	db, err := db.GetDBFromContext(c)
+	db, err := database.GetDBFromContext(c)
 	if err != nil {
 		c.AbortWithStatus(http.StatusInternalServerError)
 	}
@@ -73,7 +73,7 @@ func CreatePost(c *gin.Context) {
 		}
 		post.Media = records
 	}
-	db, err := db.GetDBFromContext(c)
+	db, err := database.GetDBFromContext(c)
 	if err != nil {
 		c.AbortWithStatus(http.StatusInternalServerError)
 	}
@@ -90,13 +90,71 @@ func CreatePost(c *gin.Context) {
 }
 
 func UpdatePost(c *gin.Context) {
+
+	var body struct {
+		Title     *string        `json:"title" `
+		Content   *string        `json:"content" `
+		Author    *string        `json:"author" `
+		Published *bool          `json:"published"`
+		Media     []MediaRequest `json:"media"`
+	}
+	if !utils.BindAndValidate(c, &body) {
+		return
+	}
+	db, dbErr := database.GetDBFromContext(c)
+	if dbErr != nil {
+		c.AbortWithStatus(http.StatusInternalServerError)
+		return
+	}
+
+	if body.Title == nil && body.Author == nil && body.Content == nil && body.Published == nil {
+		errObj := utils.RequestErrors{
+			Message: "at least one field must be provided",
+			Error:   errors.New("missing fields"),
+		}
+		c.JSON(http.StatusBadRequest, errObj.GetError())
+		return
+	}
+	if body.Media != nil {
+		errObj := utils.RequestErrors{
+			Message: utils.ERR_BAD_REQUEST.Error(),
+			Error:   errors.New("can only update media in the /media endpoint"),
+		}
+		c.JSON(http.StatusBadRequest, errObj.GetError())
+		return
+	}
+	updates := make(map[string]any)
+	if body.Title != nil {
+		updates["title"] = *body.Title
+	}
+	if body.Author != nil {
+		updates["author"] = *body.Author
+	}
+	if body.Content != nil {
+		updates["content"] = *body.Content
+	}
+	if body.Published != nil {
+		updates["published"] = *body.Published
+	}
+
 	id := c.Param("id")
-	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("no post with is %v avaliable yet", id)})
+
+	var post models.Post
+	if err := db.Model(&models.Post{}).Where("id = ?", id).Updates(updates).Scan(&post).Error; err != nil {
+		errObj := utils.RequestErrors{
+			Error:   err,
+			Message: fmt.Sprintf("failed to update post with id %s", id),
+		}
+		c.JSON(http.StatusInternalServerError, errObj.GetError())
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"data": post})
 
 }
 func DeletePost(c *gin.Context) {
 	id := c.Param("id")
-	db, err := db.GetDBFromContext(c)
+	db, err := database.GetDBFromContext(c)
 	if err != nil {
 		c.AbortWithStatus(http.StatusInternalServerError)
 	}

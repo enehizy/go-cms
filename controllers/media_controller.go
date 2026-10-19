@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/enehizy/go-cms/db"
+	"github.com/enehizy/go-cms/database"
 	"github.com/enehizy/go-cms/models"
 	"github.com/enehizy/go-cms/utils"
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 )
 
@@ -18,7 +19,7 @@ type MediaRequest struct {
 }
 
 func GetMedias(c *gin.Context) {
-	db, err := db.GetDBFromContext(c)
+	db, err := database.GetDBFromContext(c)
 	if err != nil {
 		c.AbortWithStatus(http.StatusInternalServerError)
 		return
@@ -39,7 +40,7 @@ func GetMedia(c *gin.Context) {
 	id := c.Param("id")
 
 	var media models.Media
-	db, err := db.GetDBFromContext(c)
+	db, err := database.GetDBFromContext(c)
 	if err != nil {
 		c.AbortWithStatus(http.StatusInternalServerError)
 	}
@@ -63,7 +64,7 @@ func CreateMedia(c *gin.Context) {
 	if !utils.BindAndValidate(c, &body) {
 		return
 	}
-	db, err := db.GetDBFromContext(c)
+	db, err := database.GetDBFromContext(c)
 	if err != nil {
 		c.AbortWithStatus(http.StatusInternalServerError)
 		return
@@ -82,13 +83,76 @@ func CreateMedia(c *gin.Context) {
 	}
 	c.JSON(http.StatusCreated, gin.H{"message": "successfully created a media resource", "data": media})
 }
+
+// type Media struct {
+// 	BaseModel
+// 	Uri      string `gorm:"not null; unique" json:"uri"`
+// 	MimeType string `gorm:"column:mime_type;not null;check:mime_type in ('image/jpg','image/png','video/mp4','video/webp')" json:"mime_type"`
+// 	Post     []Post `gorm:"many2many" json:"post"`
+// }
+
 func UpdateMedia(c *gin.Context) {
+	var body struct {
+		Uri      *string          `json:"uri"`
+		MimeType *models.Mimetype `json:"mime_type"`
+		Post any `json:"post"`
+	}
+	if !utils.BindAndValidate(c, &body) {
+		return
+	}
+	db, dbErr := database.GetDBFromContext(c)
+	if dbErr != nil {
+		c.AbortWithStatus(http.StatusInternalServerError)
+		return
+	}
+	if body.Uri == nil && body.MimeType == nil {
+		errObj := utils.RequestErrors{
+			Message: "at least one field must be provided",
+			Error:   errors.New("missing fields"),
+		}
+		c.JSON(http.StatusBadRequest, errObj.GetError())
+		return
+	}
+	if body.Post!=nil{
+		errObj := utils.RequestErrors{
+			Message: utils.ERR_BAD_REQUEST.Error(),
+			Error:   errors.New("can only update post in the /post endpoint"),
+		}
+		c.JSON(http.StatusBadRequest, errObj.GetError())
+		return
+	}
+	updates := make(map[string]any)
+	if body.Uri != nil {
+		updates["uri"] = *body.Uri
+	}
+	if body.MimeType != nil {
+		updates["mime_type"] = *body.MimeType
+	}
+	var media models.Media
 	id := c.Param("id")
-	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("no media with is %v avaliable yet", id)})
+	if err := db.Model(models.Media{}).Where("id = ?", id).Updates(updates).Scan(&media).Error; err != nil {
+		message := fmt.Sprintf("failed to update media with id %s", id)
+		var pgErr *pgconn.PgError
+		if ok := errors.As(err, &pgErr); ok {
+			if pgErr.Code == "23505" {
+				message = "uri already exist ,must be unique"
+			}
+			if pgErr.Code == "23514" {
+				message = "unsupported mime_type use ('image/jpg','image/png','video/mp4','video/webp')"
+			}
+		}
+		errObj := utils.RequestErrors{
+			Error:   err,
+			Message: message,
+		}
+		c.JSON(http.StatusInternalServerError, errObj.GetError())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"media": media})
 }
 func DeleteMedia(c *gin.Context) {
 	id := c.Param("id")
-	db, err := db.GetDBFromContext(c)
+	db, err := database.GetDBFromContext(c)
 	if err != nil {
 		c.AbortWithStatus(http.StatusInternalServerError)
 	}

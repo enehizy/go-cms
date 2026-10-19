@@ -5,10 +5,11 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/enehizy/go-cms/db"
+	"github.com/enehizy/go-cms/database"
 	"github.com/enehizy/go-cms/models"
 	"github.com/enehizy/go-cms/utils"
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/gorm"
 )
 
@@ -20,7 +21,7 @@ import (
 //	}
 func GetPages(c *gin.Context) {
 	var page []models.Page
-	db, err := db.GetDBFromContext(c)
+	db, err := database.GetDBFromContext(c)
 	if err != nil {
 		c.AbortWithStatus(http.StatusInternalServerError)
 	}
@@ -35,7 +36,7 @@ func GetPage(c *gin.Context) {
 	id := c.Param("id")
 
 	var page models.Page
-	db, err := db.GetDBFromContext(c)
+	db, err := database.GetDBFromContext(c)
 	if err != nil {
 		c.AbortWithStatus(http.StatusInternalServerError)
 	}
@@ -64,7 +65,7 @@ func CreatePage(c *gin.Context) {
 		return
 	}
 
-	db, err := db.GetDBFromContext(c)
+	db, err := database.GetDBFromContext(c)
 	if err != nil {
 		c.AbortWithStatus(http.StatusInternalServerError)
 		return
@@ -85,13 +86,62 @@ func CreatePage(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"message": "successfully created a page resource", "data": page})
 
 }
+
 func UpdatePage(c *gin.Context) {
+	var body struct {
+		Title   *string `json:"title"`
+		Slug    *string `json:"slug"`
+		Content *string `json:"content"`
+	}
+	if !utils.BindAndValidate(c, &body) {
+		return
+	}
+	db, err := database.GetDBFromContext(c)
+	if err != nil {
+		c.AbortWithStatus(http.StatusInternalServerError)
+	}
+	if body.Title == nil && body.Slug == nil && body.Content == nil {
+		errObj := utils.RequestErrors{
+			Message: "at least one field must be provided",
+			Error:   errors.New("missing fields"),
+		}
+		c.JSON(http.StatusBadRequest, errObj.GetError())
+		return
+	}
+	updates := make(map[string]any)
+	if body.Title != nil {
+		updates["title"] = *body.Title
+	}
+	if body.Slug != nil {
+		updates["slug"] = *body.Slug
+	}
+	if body.Content != nil {
+		updates["content"] = *body.Content
+	}
 	id := c.Param("id")
-	c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("no page with is %v avaliable yet", id)})
+	var page models.Page
+	if err := db.Model(&models.Page{}).Where("id = ?", id).Updates(updates).Scan(&page).Error; err != nil {
+		message := fmt.Sprintf("failed to update post with id %s", id)
+
+		var pgErr *pgconn.PgError
+		if ok := errors.As(err, &pgErr); ok {
+			if pgErr.Code == "23505" {
+				message = "slug already exist ,must be unique"
+			}
+		}
+
+		errObj := utils.RequestErrors{
+			Error:   err,
+			Message: message,
+		}
+		c.JSON(http.StatusInternalServerError, errObj.GetError())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": page})
 }
 func DeletePage(c *gin.Context) {
 	id := c.Param("id")
-	db, err := db.GetDBFromContext(c)
+	db, err := database.GetDBFromContext(c)
 	if err != nil {
 		c.AbortWithStatus(http.StatusInternalServerError)
 	}

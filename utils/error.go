@@ -8,6 +8,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+var (
+	ERR_BAD_REQUEST = errors.New("BAD_REQUEST")
+)
+
 type RequestErrors struct {
 	Message string
 
